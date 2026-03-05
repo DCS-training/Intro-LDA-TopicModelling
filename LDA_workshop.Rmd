@@ -1,0 +1,547 @@
+---
+title: "Introduction to Topic Modelling with LDA"
+author: "Aybuke Atalay"
+date: "2026-03-04"
+output: html_document
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Topic modelling is a computational text analysis method used to uncover **hidden thematic structures** in large collections of text.
+
+Instead of reading each document individually, topic models identify **patterns of word co-occurrence** across the corpus.
+
+These patterns form **topics**, which are groups of words that frequently appear together.
+
+Each document can contain **multiple topics in different proportions**, rather than belonging to only one theme.
+
+Topic modelling is particularly useful when analysing large collections of text such as:
+
+-   news articles\
+-   political speeches\
+-   social media posts\
+-   policy documents
+
+In this workshop we will focus on **Latent Dirichlet Allocation (LDA)**, one of the most widely used topic modelling algorithms.
+
+Below are the steps we will follow in this workshop:
+
+-   Diagnose pre-processing choices
+-   Prepare the text data
+-   Construct the document–term matrix
+-   Fit a topic model
+-   Interpret the resulting topics
+
+------------------------------------------------------------------------
+
+# Installing Required Packages
+
+If these packages are not installed on your computer, delete \# and run the code:
+
+```{r eval=FALSE}
+# install.packages("quanteda")
+# install.packages("topicmodels")
+# install.packages("dplyr")
+# install.packages("stringr")
+# install.packages("preText")
+# install.packages("ldatuning")
+# install.packages{"tidytext"}
+# install.packages(ggplot2)
+```
+
+Now we load the packages.
+
+```{r}
+library(quanteda)    # text processing and document-term matrices, also contains the data we will be using
+library(topicmodels) # implementation of LDA topic models
+library(dplyr)       # data manipulation
+library(stringr)     # text cleaning tools
+library(preText)     # diagnostics for pre-processing decisions
+library(tidytext)   # to format topic modelling output
+library(ggplot2)    # to visualise topics
+```
+
+------------------------------------------------------------------------
+
+# The Dataset: Inaugural Speeches
+
+For this tutorial we use **U.S. presidential inaugural speeches**, which are included in the `quanteda` package.
+
+Each speech will be treated as a **document** in our corpus.
+
+```{r}
+data_corpus_inaugural
+
+corpus <- data_corpus_inaugural
+corpus
+```
+
+We can also inspect some metadata.
+
+```{r}
+docvars(corpus)
+```
+
+This tells us information such as:
+
+-   the president
+-   the year of the speech
+-   the political party
+
+------------------------------------------------------------------------
+
+# Extracting the Text
+
+Next we extract the speech texts from the corpus.
+
+```{r}
+texts <- as.character(corpus)
+
+length(texts)
+```
+
+This tells us how many documents (speeches) are in the dataset.
+
+------------------------------------------------------------------------
+
+# Inspecting a Document
+
+Let's look at the first speech.
+
+```{r}
+texts[1]
+```
+
+These speeches are relatively long, which makes them well suited for topic modelling.
+
+------------------------------------------------------------------------
+
+# Diagnosing pre-processing Choices with preText
+
+Before running topic models, researchers often apply pre-processing steps such as:
+
+-   removing punctuation\
+-   removing rare words\
+-   applying stemming\
+-   creating n-grams
+
+These steps are meant to simplify the text, but they can also change the relationships between documents in unintended ways. For example, removing certain words might cause two documents that were originally quite different to suddenly appear very similar.
+
+The **preText** package helps evaluate whether pre-processing choices improve or distort document similarity.It tests different pre-processing combinations and examines how each choice affects the similarity structure of the corpus.
+
+The idea: if the pre-processing step dramatically changes the relationships between documents, it may be distorting the underlying structure of the data. If it has little effect, it is likely a safe pre-processing decision. So the preText package
+
+-   Generates multiple versions of the corpus using different pre-processing options.
+
+-   Calculates the similarity between documents under each version.
+
+-   Compares these results to determine which pre-processing choices substantially alter document similarity.
+
+This allows us to make more informed pre-processing decisions before fitting topic models. You can read more about this package at: <https://www.mjdenny.com/getting_started_with_preText.html>
+
+## Generating pre-processing Variants using preText
+
+We will use the instructions from the package directly. The functions we use are predefined within this package, so we are not writing new functions. First we generate different pre-processing combinations.
+
+```{r}
+preprocessed_documents <- factorial_preprocessing(
+  texts,
+  use_ngrams = TRUE,
+  infrequent_term_threshold = 0.2,
+  verbose = FALSE
+)
+```
+
+------------------------------------------------------------------------
+
+## Running the preText Diagnostic
+
+Next we compare how different pre-processing decisions affect document similarity.
+
+```{r}
+preText_results <- preText(
+  preprocessed_documents,
+  dataset_name = "Inaugural Speeches",
+  distance_method = "cosine",
+  num_comparisons = 20,
+  verbose = FALSE
+)
+```
+
+------------------------------------------------------------------------
+
+## Visualising the Results
+
+To interpret the results easier, we can visualise the effect of different pre-processing choices.
+
+```{r}
+regression_coefficient_plot(preText_results, remove_intercept = TRUE)
+```
+
+Each bar represents a pre-processing decision.
+
+## Interpretation:
+
+-   Values **close to zero** suggest the step has little effect.
+-   Large **positive values** indicate that the step may distort document similarity.
+
+What the plot tells us: What We Observe in This Corpus
+
+Removing punctuation has the largest positive effect. This suggests that punctuation carries information that helps distinguish documents. Removing it substantially changes document similarity, so it may be better to retain punctuation in this corpus.
+
+Removing infrequent terms also has a noticeable positive effect. This indicates that rare words may contain meaningful information about differences between speeches. Aggressively removing rare terms could therefore alter the structure of the corpus.
+
+Lowercasing and removing numbers appear to have effects close to zero. This suggests that these steps do not strongly distort document similarity and are generally safe pre-processing decisions.
+
+Removing stopwords and using n-grams show moderate negative effects. This means they slightly reduce document similarity differences between texts but do not appear to distort the corpus dramatically. These steps can therefore still be considered depending on the goals of the analysis.
+
+Stemming also appears close to zero, suggesting that reducing words to their root forms is unlikely to strongly alter document relationships.
+
+------------------------------------------------------------------------
+
+# Applying Pre-Processing
+
+Based on the **preText diagnostics**, we now apply pre-processing decisions that do not strongly distort the similarity structure of the corpus.
+
+From the diagnostic plot we observed that:
+
+-   Lowercasing has little effect → safe to apply\
+-   Removing numbers has little effect → safe to apply\
+-   Stemming has little effect → can be applied\
+-   Removing punctuation strongly affects document similarity → we will **keep punctuation for now**\
+-   Removing infrequent terms may distort the corpus → we will **avoid aggressively removing rare terms**
+
+The goal of pre-processing is to **standardise the text while preserving meaningful differences between documents**.
+
+------------------------------------------------------------------------
+
+## Basic Text Cleaning
+
+First we perform simple cleaning operations such as converting text to lowercase and removing irregular spacing.
+
+```{r}
+clean_texts <- texts %>%
+  str_to_lower() %>%              # convert text to lowercase
+  str_replace_all("\\n", " ") %>% # remove line breaks
+  str_squish()                    # remove extra spaces
+
+head(clean_texts, 1)
+```
+
+------------------------------------------------------------------------
+
+# Tokenisation
+
+Next we break the text into **tokens**.\
+Tokens are typically individual words. Tokenisation is necessary for topic modelling because the algorithm identifies patterns of word co-occurrence, which requires the text to be broken into individual tokens that can be counted across documents. Tokenisation allows us to transform raw text into a structured format that can be analysed computationally.
+
+```{r}
+tokens <- tokens(
+  clean_texts,
+  remove_punct = FALSE  # we keep punctuation based on the preText diagnostic
+)
+# we can ispect tokens in one of the documents
+tokens[1]
+```
+
+## Token Processing
+
+We now apply several transformations to the tokens to standardise the vocabulary.
+
+These include:
+
+-   **Removing stopwords:** Stopwords are very common words such as *the*, *and*, or *of*. These words appear frequently across documents but usually carry little thematic meaning.
+
+-   **Stemming:** Stemming reduces words to their root form. For example, *governing*, *governed*, and *government* may be reduced to **govern**.
+
+-   **Creating n-grams:**
+
+    -   A **unigram** is a single word\
+    -   A **bigram** is a pair of consecutive words
+
+Including bigrams allows the model to capture meaningful phrases such as **united_states**.
+
+```{r}
+tokens_processed <- tokens %>%
+  tokens_remove(stopwords("en")) %>%
+  tokens_wordstem() %>%
+  tokens_ngrams(n = 1:2)
+```
+
+## Inspecting the Tokens
+
+Before continuing with further pre-processing steps, it is useful to inspect which tokens appear most frequently in the corpus.
+
+```{r}
+topfeatures(dfm(tokens_processed), 20)
+```
+
+We can see that several punctuation marks such as **","**, **"."**, and **";"** appear among the most frequent tokens.
+
+This occurs because we initially retained punctuation based on the **preText diagnostic**. However, punctuation does not usually contribute meaningful information for topic modelling.
+
+Topic models aim to identify **thematic patterns in words**, whereas punctuation mainly reflects writing style or sentence structure. Because punctuation appears very frequently, it can dominate the vocabulary without helping us interpret topics.
+
+For this reason, we revise our pre-processing decision and remove punctuation during tokenisation.
+
+## Updated Tokenisation
+
+```{r}
+tokens <- tokens(
+  clean_texts,
+  remove_punct = TRUE
+)
+
+tokens[1]
+```
+
+We need to repeat the token processing (removing stopwords, stemming,creating n-grams)
+
+```{r}
+tokens_processed <- tokens %>%
+  tokens_remove(stopwords("en")) %>%
+  tokens_wordstem() %>%
+  tokens_ngrams(n = 1:2)
+```
+
+And we check the most frequent tokens again:
+
+```{r}
+topfeatures(dfm(tokens_processed), 20)
+```
+
+Now we are ready for the next step: DTMs
+
+------------------------------------------------------------------------
+
+# Creating the Document-Term Matrix
+
+After pre-processing the tokens, we construct a **Document–Term Matrix (DTM)**.
+
+A DTM is a matrix where:
+
+-   rows represent documents\
+-   columns represent terms (words or n-grams)\
+-   values represent how often each term appears in each document
+
+```{r}
+dtm <- dfm(tokens_processed) #we use the dfm function to create dtms
+
+dtm
+```
+
+------------------------------------------------------------------------
+
+# Inspecting our DTM
+
+## Checking Vocabulary Size
+
+```{r}
+nfeat(dtm)
+```
+
+The output above shows the number of **unique terms** remaining in the corpus after pre-processing.
+
+A very large vocabulary can introduce noise into topic models because many words may appear only once or twice. However, a vocabulary that is too small may remove meaningful information.
+
+In our case, the vocabulary contains **around 60,000 terms**, which is very large relative to the size of the corpus. A vocabulary of this size usually indicates that many terms appear only once or twice. These can include spelling variants, proper names, or rare word combinations produced during pre-processing.
+
+While rare terms may occasionally contain meaningful information, they often introduce noise into topic models. They increase the dimensionality of the document–term matrix without contributing much to the identification of coherent topics.
+
+For this reason, it is common practice in topic modelling to remove **extremely infrequent terms**.
+
+## Checking Sparsity
+
+```{r}
+sparsity(dtm)
+```
+
+The sparsity measure indicates how many entries in the document–term matrix are zero.
+
+Text data is naturally sparse because each document contains only a small subset of all possible words. However, when the vocabulary becomes very large, many terms appear only once or twice across the corpus.
+
+In our case, the sparsity value is **around 0.97**, meaning that approximately 97% of the cells in the matrix contain zero values. This suggests that the matrix contains many extremely rare terms.
+
+Rare terms usually contribute little to topic modelling because the algorithm learns topics from patterns of word co-occurrence across documents. Words that appear only once or twice provide very little information for identifying these patterns.
+
+To reduce noise in the model, we remove **extremely infrequent terms**.
+
+However, the **preText** diagnostics warned that removing infrequent terms may distort document similarity. For this reason, we take a conservative approach and remove only the **most extreme rare terms**.
+
+```{r}
+dtm <- dfm_trim(dtm, min_termfreq = 3) # remove words that occured in the dataset 3 times or less
+
+nfeat(dtm) # check the unique no. of words again
+
+sparsity(dtm) # check sparcity again
+```
+
+After trimming extremely rare terms, the vocabulary decreases substantially to around 4,600 unique terms and the sparsity drops to approximately 0.86. These values fall within a typical range for topic modelling, suggesting that the document–term matrix now provides a manageable and informative representation of the corpus.
+
+# Preparing Data for Topic Modelling
+
+Finally, we convert the document–term matrix into the format required by the **topicmodels** package.
+
+```{r}
+dtm_tm <- convert(dtm, to = "topicmodels")
+```
+
+The data is now ready for **Latent Dirichlet Allocation (LDA)**.
+
+------------------------------------------------------------------------
+
+# Choosing the Number of Topics
+
+In Latent Dirichlet Allocation (LDA), we must specify the number of topics **k** before fitting the model.
+
+Unlike some clustering methods, LDA does not automatically determine how many topics exist in the data. Instead, the researcher must choose a value for *k*.
+
+Selecting the number of topics is important because it affects how the corpus is represented:
+
+-   If **too few topics** are chosen, different themes may be merged together.
+-   If **too many topics** are chosen, topics may become fragmented or difficult to interpret.
+
+Researchers therefore often compare models with different values of *k* before selecting a final model.
+
+Several statistical metrics can help evaluate topic models with different numbers of topics. These metrics assess different aspects of **topic quality**, such as how well the model fits the data or how clearly topics are separated from each other. Common metrics include:
+
+-   **Griffiths2004**\
+    Based on the **log likelihood** of the model. Higher values suggest that the model explains the observed data better. [<https://www.pnas.org/doi/full/10.1073/pnas.0307752101>]
+
+-   **Cao2009**\
+    Measures the average **similarity between topics**. Lower values indicate t less overlap between topics and therefore a better model [<https://www.sciencedirect.com/science/article/abs/pii/S092523120800372X?via%3Dihub>]
+
+-   **Arun2010**\
+    Computes the symmetric KL **divergence between distributions** derived from the topic–word and document–topic matrices. The optimal number of topics corresponds to the **minimum divergence**.[<https://link.springer.com/chapter/10.1007/978-3-642-13657-3_43>]
+
+-   **Deveaud2014**\
+    Measures the **distance between topics**. Higher values indicate more clearly separated topics. [<https://hal.science/hal-01002716v1>]
+
+In practice, researchers often examine several of these metrics when deciding on the number of topics. However, for the purpose of this tutorial we will focus on **log-likelihood**, as it provides a simple way to compare models with different numbers of topics and is directly available in the **topicmodels** package.
+
+We therefore estimate topic models with different values of *k* and compare their log-likelihood values.
+
+```{r}
+k_values <- seq(2, 12) # we inspect k values between 2 and 20
+
+log_likelihoods <- sapply(k_values, function(k) {
+  model <- LDA(dtm_tm, k = k, control = list(seed = 1234))
+  logLik(model)
+})
+```
+
+## Visualising the Results
+
+We now plot the log-likelihood values for each candidate number of topics.
+
+Typically, log-likelihood increases as the number of topics increases. We therefore look for a point where improvements begin to slow down, often referred to as an elbow in the curve.
+
+```{r}
+plot(
+  k_values,
+  log_likelihoods,
+  type = "b",
+  xlab = "Number of Topics (k)",
+  ylab = "Log-Likelihood",
+  main = "Choosing the Number of Topics"
+)
+
+axis(1, at = k_values)
+```
+
+The log-likelihood increases as the number of topics increases. This is expected because models with more topics have greater flexibility and can fit the data more closely.
+
+However, increasing the number of topics indefinitely can lead to topics that are fragmented and difficult to interpret.
+
+We therefore often look for a point where improvements begin to slow down.
+
+In this example, the increase becomes less pronounced after around **6–7 topics**. For the purposes of this tutorial, we therefore choose \*\*k = 7\* topics.
+
+# Performing LDA Topic Modelling
+
+```{r}
+k <- 7
+
+lda_model <- LDA(dtm_tm, k = k, control = list(seed = 1234))
+```
+
+## Inspecting the Topics
+
+After fitting the model, we examine the **top words associated with each topic**.
+
+Topic models do not automatically assign labels to topics. Instead, they produce groups of words that frequently appear together across documents. Researchers then **interpret these word groups and assign a meaningful label** to each topic.
+
+We can inspect the most probable words for each topic.
+
+```{r}
+terms(lda_model, 5)
+```
+
+To make interpretation easier, we can also visualise the most important words in each topic.
+
+```{r}
+topics <- tidy(lda_model, matrix = "beta")
+
+top_terms <- topics %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 10) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+ggplot(top_terms, aes(x = reorder(term, beta), y = beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~topic, scales = "free") +
+  coord_flip() +
+  labs(
+    title = "Top Terms in Each Topic",
+    x = "Term",
+    y = "Probability"
+  )
+```
+
+## Interpreting the Topics
+
+The figure above shows the **top words associated with each topic**.
+
+Each panel corresponds to a single topic, and the bars represent the **most probable words within that topic**. The length of each bar indicates the probability of that word appearing in the topic.
+
+Topic models do not automatically assign labels to topics. Instead, researchers interpret topics by examining the most prominent words in each group.
+
+For example:
+
+-   **Topic 1** contains words such as *govern*, *state*, *people*, and *constitution*, which may suggest a theme related to **governance and constitutional institutions**.
+
+-   **Topic 3** includes words such as *nation*, *world*, *power*, and *peace*, which may reflect **international relations or national strength**.
+
+-   **Topic 5** includes words such as *america*, *nation*, and *people*, which may correspond to **national identity or patriotic rhetoric**.
+
+These interpretations are not definitive; they depend on **context and substantive knowledge of the corpus**.
+
+Topic modelling therefore combines **computational methods with qualitative interpretation**.
+
+------------------------------------------------------------------------
+
+# Final Remarks
+
+In this workshop we introduced the basic workflow of **topic modelling using Latent Dirichlet Allocation (LDA)**.
+
+We walked through the main steps involved in applying topic modelling to a text corpus:
+
+1.  Diagnosing preprocessing choices using preText
+2.  Cleaning and tokenising the text
+3.  Constructing a document–term matrix
+4.  Selecting the number of topics
+5.  Fitting an LDA topic model
+6.  Interpreting the resulting topics
+
+Topic modelling allows researchers to explore large text collections by identifying patterns of word co-occurrence that form interpretable themes.
+
+However, topic modelling results should always be interpreted carefully. Topics do not come with predefined labels, and different preprocessing choices or topic numbers can lead to different results.
+
+For this reason, topic modelling is best understood as an **exploratory tool** that helps researchers identify potential themes and patterns in large corpora.
+
+Combining computational methods with substantive knowledge of the corpus remains essential for meaningful interpretation.
