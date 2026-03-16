@@ -122,7 +122,7 @@ All material collected here is free to use but is covered by a License: [![Licen
 ####  Start Noteable
 1.  Open the following link in a new tab:  [https://noteable.edina.ac.uk/login](https://noteable.edina.ac.uk/login)
 2.  Login with your EASE credentials
-3.  Under 'Standard Notebook' click 'Start'
+3.  Under 'Standard Python 3' click 'Start'
 
 ####  Upload the Notebook (and files) to Noteable 
 1.  From the Noteable home page, click on the 'Git'>'Clone a Repository' button at the top bar of the screen and enter the link of this repo [[https://github.com/DCS-training/SentimentAnalysis.git](https://github.com/DCS-training/Intro-LDA-TopicModelling)]
