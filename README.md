@@ -4,7 +4,7 @@ This repository contains the materials for the **Silent Disco: Introduction to L
 
 The tutorial was developed for the **Centre for Data, Culture & Society (CDCS)** by **Dr. Aybuke Atalay** and **Dr. Somya Iqbal**.
 
-In this workshop, participants will learn how to perform **topic modelling using the Latent Dirichlet Allocation (LDA)** method. The materials are provided in **both R and Python**, allowing participants to follow the version that best matches their programming experience.
+In this workshop, participants will learn how to perform **topic modelling using the Latent Dirichlet Allocation (LDA)** method. The materials are provided in **both R and Python**, allowing participants to follow the version that best matches their programming experience. The R and Python tutorials follow the same workflow but rely on different software implementations of LDA. As a result, some evaluation metrics may behave slightly differently across the two versions.
 
 Using the supplied scripts and dataset, participants will walk through the main steps of topic modelling, including:
 
