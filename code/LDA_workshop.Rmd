@@ -47,7 +47,8 @@ If these packages are not installed on your computer, delete \# and run the code
 # install.packages("topicmodels")
 # install.packages("dplyr")
 # install.packages("stringr")
-# devtools::install_github("matthewjdenny/preText")
+#install.packages("devtools")
+#devtools::install_github("matthewjdenny/preText")
 # install.packages("ldatuning")
 # install.packages{"tidytext"}
 # install.packages(ggplot2)
